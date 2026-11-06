@@ -1,0 +1,77 @@
+const assert=require('node:assert/strict');
+const base=process.env.AUTH_SMOKE_URL+'/api/v1/';
+const password=process.env.Seed__Password;
+let checks=0;
+async function call(path,method='GET',body,token,expected=200,etag){
+ const r=await fetch(base+path,{method,headers:{'Content-Type':'application/json',...(token?{Authorization:'Bearer '+token}:{}),...(etag?{'If-Match':etag}:{})},...(body===undefined?{}:{body:JSON.stringify(body)})});
+ const text=await r.text();const data=text?JSON.parse(text):null;
+ assert.equal(r.status,expected,`${method} ${path}: ${r.status}, ${data?.code}`);
+ checks++;return {data,etag:r.headers.get('etag'),location:r.headers.get('location')};
+}
+async function find(path,search,token){return (await call(path+'?search='+encodeURIComponent(search), 'GET',undefined,token)).data.items[0];}
+(async()=>{
+ await call('organizations','GET',undefined,undefined,401);
+ const admin=(await call('auth/login','POST',{username:'admin',password})).data;
+ const staff=(await call('auth/login','POST',{username:'staff.hcm',password})).data;
+ const quality=(await call('auth/login','POST',{username:'quality.hn',password})).data;
+ const a=admin.accessToken,s=staff.accessToken,q=quality.accessToken;
+ const scoped=await call('warehouses','GET',undefined,s);assert.equal(scoped.data.totalItems,1);
+ await call('warehouses/'+quality.user.warehouseIds[0],'GET',undefined,s,404);
+ await call('warehouses?page=0','GET',undefined,a,400);
+ await call('warehouses?sort=unknown','GET',undefined,a,400);
+ await call('organizations?kind=Combined','GET',undefined,a,400);
+ await call('organizations?country=Vietnam','GET',undefined,a,400);
+ await call('vaccines?manufacturerId=0','GET',undefined,a,400);
+ const fixtureWh=await find('warehouses','FIX-USED-WH',a);
+ const usedMan=await find('organizations','FIX-MAN',a);
+ const usedSup=await find('organizations','FIX-SUP',a);
+ const usedVac=await find('vaccines','FIX-VAC-USED',a);
+ assert.ok(usedVac.manufacturerName);
+ for(const [resource,id] of [['warehouses',fixtureWh.id],['organizations',usedMan.id],['organizations',usedSup.id],['vaccines',usedVac.id]]){
+  const x=await call(resource+'/'+id,'GET',undefined,a);
+  const denied=await call(resource+'/'+id,'DELETE',undefined,a,409,x.etag);assert.equal(denied.data.code,'RESOURCE_IN_USE');
+ }
+ const locked=await call('vaccines/'+usedVac.id,'GET',undefined,a);
+ const usedBody={code:usedVac.code,name:usedVac.name,manufacturerId:usedVac.manufacturerId,dosesPerVial:usedVac.dosesPerVial,vialsPerPack:usedVac.vialsPerPack,storageMin:usedVac.storageMin,storageMax:usedVac.storageMax};
+ await call('vaccines/'+usedVac.id,'PUT',{...usedBody,dosesPerVial:2},a,409,locked.etag);
+ await call('vaccines/'+usedVac.id,'PUT',{...usedBody,code:'CHANGED-CODE'},a,409,locked.etag);
+ const storage=await call('vaccines/'+usedVac.id,'PUT',{...usedBody,storageMax:7},a,200,locked.etag);assert.equal(storage.data.storageReviewRequired,true);
+ const orgUsed=await call('organizations/'+usedMan.id,'GET',undefined,a);
+ await call('organizations/'+usedMan.id,'PUT',{code:usedMan.code,name:usedMan.name,country:usedMan.country,kind:'Supplier'},a,409,orgUsed.etag);
+ const whUsed=await call('warehouses/'+fixtureWh.id,'GET',undefined,a);
+ await call('warehouses/'+fixtureWh.id,'PUT',{code:'NEW-CODE',name:'Name'},a,409,whUsed.etag);
+ const wh=await call('warehouses','POST',{code:'  TEST-WH  ',name:'Test warehouse'},a,201);assert.equal(wh.data.code,'TEST-WH');
+ assert.ok(wh.location.endsWith('/warehouses/'+wh.data.id));assert.equal(wh.etag,`"${wh.data.version}"`);
+ await call('warehouses','POST',{code:'TEST-WH',name:'Duplicate'},a,409);
+ await call('warehouses','POST',{code:'STAFF-WH',name:'Forbidden'},s,403);
+ await call('warehouses/'+wh.data.id,'PUT',{code:'TEST-WH',name:'Updated'},a,428);
+ const wh2=await call('warehouses/'+wh.data.id,'PUT',{code:'TEST-WH2',name:'Updated'},a,200,wh.etag);assert.notEqual(wh2.etag,wh.etag);
+ await call('warehouses/'+wh.data.id,'DELETE',undefined,a,412,wh.etag);
+ const manBody={code:'TEST-MAN',name:'Test manufacturer',country:'vn',kind:'Manufacturer'};
+ const man=await call('organizations','POST',manBody,a,201);assert.equal(man.data.country,'VN');
+ await call('organizations','POST',{...manBody,code:'   '},a,400);
+ await call('organizations','POST',{...manBody,kind:'Combined'},a,400);
+ await call('organizations','POST',{...manBody,code:'Q-MAN'},q,403);
+ const vaccine={code:'TEST-VAC',name:'Test vaccine',manufacturerId:man.data.id,dosesPerVial:1,vialsPerPack:10,storageMin:2,storageMax:8};
+ await call('vaccines','POST',{...vaccine,manufacturerId:usedSup.id},a,400);
+ await call('vaccines','POST',{...vaccine,dosesPerVial:0},a,400);
+ await call('vaccines','POST',{...vaccine,storageMin:9},a,400);
+ await call('vaccines','POST',{...vaccine,storageMin:2.123},a,400);
+ const {storageMin,...missingMin}=vaccine;await call('vaccines','POST',missingMin,a,400);
+ const vac=await call('vaccines','POST',vaccine,a,201);
+ await call('vaccines','POST',vaccine,a,409);
+ const visible=await call('vaccines?manufacturerId='+man.data.id+'&sort=name&pageSize=1','GET',undefined,s);assert.equal(visible.data.totalItems,1);
+ await call('organizations/'+man.data.id,'DELETE',undefined,a,409,man.etag);
+ const vac2=await call('vaccines/'+vac.data.id,'PUT',{...vaccine,name:'Updated vaccine'},a,200,vac.etag);assert.equal(vac2.data.storageReviewRequired,false);
+ await call('vaccines/'+vac.data.id,'PUT',{...vaccine,name:'Stale'},a,412,vac.etag);
+ await call('vaccines/'+vac.data.id,'DELETE',undefined,q,403,vac2.etag);
+ await call('vaccines/'+vac.data.id,'DELETE',undefined,a,204,vac2.etag);
+ await call('vaccines/'+vac.data.id,'GET',undefined,a,404);
+ const man2=await call('organizations/'+man.data.id,'PUT',{...manBody,name:'Updated manufacturer',code:'TEST-MAN-2'},a,200,man.etag);
+ await call('organizations/'+man.data.id,'DELETE',undefined,a,204,man2.etag);
+ await call('warehouses/'+wh.data.id,'DELETE',undefined,a,204,wh2.etag);
+ await call('warehouses/'+wh.data.id,'GET',undefined,a,404);
+ const pair=await Promise.all([1,2].map(()=>fetch(base+'organizations',{method:'POST',headers:{Authorization:'Bearer '+a,'Content-Type':'application/json'},body:JSON.stringify({code:'CONCURRENT',name:'Concurrent',country:'VN',kind:'Carrier'})})));
+ assert.deepEqual(pair.map(r=>r.status).sort(),[201,409]);checks+=2;
+ console.log(`PASS: ${checks} HTTP catalog checks (CRUD, scope, validation, ETags, reference locks, storage review and concurrent duplicate).`);
+})().catch(e=>{console.error(e.message);process.exitCode=1;});

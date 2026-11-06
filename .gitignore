@@ -53,3 +53,4 @@ app.*.map.json
 **/obj/
 .vs/
 **/appsettings.Local.json
+backend/test-results/

@@ -1,6 +1,6 @@
 # Database theo flow nhập → sự cố → xuất
 
-Trạng thái: schema và migration đã triển khai; chưa triển khai service/API. Kiến trúc ứng dụng đã chốt 3 tầng API → Business → Data Access. Hợp đồng API đang được đề xuất tại [đặc tả API](vaccine-api-specification.md).
+Trạng thái: schema và migration đã triển khai. Auth đã tách 3 tầng API → Business → Data Access, bổ sung AuthVersion/RowVersion tài khoản; xem [auth implementation](auth-implementation.md). Service/API nghiệp vụ kho chưa triển khai. Hợp đồng API đang được đề xuất tại [đặc tả API](vaccine-api-specification.md).
 
 ## Phạm vi
 
@@ -94,8 +94,8 @@ Tại thư mục `backend`:
 
 ```powershell
 dotnet build VaxStock.sln
-dotnet ef database update --project VaxStock.Api
-dotnet ef migrations has-pending-model-changes --project VaxStock.Api
+dotnet ef database update --project VaxStock.DataAccess --startup-project VaxStock.Api
+dotnet ef migrations has-pending-model-changes --project VaxStock.DataAccess --startup-project VaxStock.Api
 sqlcmd -S localhost -E -C -d VaxStockDev -b -i verify-schema.sql
 sqlcmd -S localhost -E -C -d VaxStockDev -b -i test-database-flow.sql
 ```

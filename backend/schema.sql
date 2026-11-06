@@ -918,3 +918,133 @@ END;
 COMMIT;
 GO
 
+BEGIN TRANSACTION;
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261106142011_AuthSessionVersion'
+)
+BEGIN
+    ALTER TABLE [AppUserRecords] ADD [AuthVersion] int NOT NULL DEFAULT 0;
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261106142011_AuthSessionVersion'
+)
+BEGIN
+    ALTER TABLE [AppUserRecords] ADD [RowVersion] rowversion NOT NULL;
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261106142011_AuthSessionVersion'
+)
+BEGIN
+    INSERT INTO [__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+    VALUES (N'20261106142011_AuthSessionVersion', N'10.0.12');
+END;
+
+COMMIT;
+GO
+
+BEGIN TRANSACTION;
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261106150206_UserManagementConcurrency'
+)
+BEGIN
+    ALTER TABLE [WarehouseAssignmentRecords] ADD [RowVersion] rowversion NOT NULL;
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261106150206_UserManagementConcurrency'
+)
+BEGIN
+    DECLARE @var nvarchar(max);
+    SELECT @var = QUOTENAME([d].[name])
+    FROM [sys].[default_constraints] [d]
+    INNER JOIN [sys].[columns] [c] ON [d].[parent_column_id] = [c].[column_id] AND [d].[parent_object_id] = [c].[object_id]
+    WHERE ([d].[parent_object_id] = OBJECT_ID(N'[AuditLogRecords]') AND [c].[name] = N'Details');
+    IF @var IS NOT NULL EXEC(N'ALTER TABLE [AuditLogRecords] DROP CONSTRAINT ' + @var + ';');
+    ALTER TABLE [AuditLogRecords] ALTER COLUMN [Details] nvarchar(max) NOT NULL;
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261106150206_UserManagementConcurrency'
+)
+BEGIN
+    INSERT INTO [__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+    VALUES (N'20261106150206_UserManagementConcurrency', N'10.0.12');
+END;
+
+COMMIT;
+GO
+
+BEGIN TRANSACTION;
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261106152736_MasterDataConcurrency'
+)
+BEGIN
+    ALTER TABLE [WarehouseRecords] ADD [RowVersion] rowversion NOT NULL;
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261106152736_MasterDataConcurrency'
+)
+BEGIN
+    ALTER TABLE [VaccineRecords] ADD [RowVersion] rowversion NOT NULL;
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261106152736_MasterDataConcurrency'
+)
+BEGIN
+    ALTER TABLE [OrganizationRecords] ADD [RowVersion] rowversion NOT NULL;
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261106152736_MasterDataConcurrency'
+)
+BEGIN
+    EXEC(N'ALTER TABLE [OrganizationRecords] ADD CONSTRAINT [CK_Organization_Kind] CHECK ([Kind] IN (''Manufacturer'',''Supplier'',''Recipient'',''Carrier''))');
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261106152736_MasterDataConcurrency'
+)
+BEGIN
+    INSERT INTO [__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+    VALUES (N'20261106152736_MasterDataConcurrency', N'10.0.12');
+END;
+
+COMMIT;
+GO
+
+BEGIN TRANSACTION;
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261106153926_VaccineBatchConcurrency'
+)
+BEGIN
+    ALTER TABLE [VaccineBatchRecords] ADD [RowVersion] rowversion NOT NULL;
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261106153926_VaccineBatchConcurrency'
+)
+BEGIN
+    INSERT INTO [__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+    VALUES (N'20261106153926_VaccineBatchConcurrency', N'10.0.12');
+END;
+
+COMMIT;
+GO
+

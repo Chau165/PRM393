@@ -4,3 +4,30 @@ GET {{VaxStock.Api_HostAddress}}/health
 Accept: application/json
 
 ###
+
+# Define @password locally in your HTTP client; do not commit actual credentials.
+@username = staff.hcm
+
+POST {{VaxStock.Api_HostAddress}}/api/v1/auth/login
+Content-Type: application/json
+
+{"username":"{{username}}","password":"{{password}}"}
+
+###
+# Set @token locally to the login accessToken.
+GET {{VaxStock.Api_HostAddress}}/api/v1/auth/me
+Authorization: Bearer {{token}}
+
+###
+POST {{VaxStock.Api_HostAddress}}/api/v1/auth/change-password
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{"currentPassword":"{{password}}","newPassword":"{{newPassword}}"}
+
+###
+POST {{VaxStock.Api_HostAddress}}/api/v1/auth/logout
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{}

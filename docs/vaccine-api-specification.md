@@ -1,6 +1,12 @@
 # Đề xuất API VaxStock — kiến trúc 3 tầng
 
-Trạng thái: **đặc tả đề xuất, chưa triển khai endpoint nghiệp vụ**. Hiện code chỉ có `GET /health`. Tài liệu bám schema 21 bảng tại [database flow](vaccine-database-flow.md); những phần cần migration thêm được ghi ở cuối.
+Trạng thái: **đặc tả đề xuất cho endpoint nghiệp vụ kho**, auth đã có implementation riêng như ghi chú bên dưới. Tài liệu bám schema 21 bảng tại [database flow](vaccine-database-flow.md); những phần cần migration thêm được ghi ở cuối.
+
+**Cập nhật triển khai mục 5:** đã có login/me/change-password/logout, quản trị user và assignment ở mục 5.2; xem [Auth BE + Flutter](auth-implementation.md) và [quản trị user/quyền kho](user-management-implementation.md). User response có warehouseIds, version và warehouses chi tiết để Flutter tương thích; GET me/user/assignment có ETag, các cập nhật quản trị dùng If-Match. Nền Idempotency-Key chung vẫn chưa triển khai. Các API nghiệp vụ kho còn lại vẫn là đề xuất.
+
+**Cập nhật mục 6:** đã có API CRUD Kho/Đối tác/Vaccine, phân trang/filter, scope kho, ETag/If-Match và audit; xem [danh mục](master-data-implementation.md). Vaccine response có thêm storageReviewRequired cho thao tác đổi khoảng bảo quản. Flutter đã nối [shell và Kho](flutter-shell-warehouse-integration.md), chưa nối Đối tác/Vaccine.
+
+**Cập nhật mục 7:** đã có sáu API lô và truy xuất; xem [lô vaccine và trace](batch-implementation.md). Có RowVersion, metadata conflict trả existingBatchId, ngày nghiệp vụ UTC+7 và trace theo quyền kho. Mục 8 trở đi chưa triển khai; các thông tin trạng thái triển khai ở đầu tài liệu là nơi đối chiếu hiện tại.
 
 Mục tiêu: dùng làm hợp đồng để BE và Flutter chia việc, bao phủ đăng nhập, danh mục, nhập, chất lượng, sự cố, giữ hàng, xuất, xuất trả/tiêu hủy, hồ sơ quốc tế, báo cáo và nhật ký.
 
@@ -120,11 +126,11 @@ Admin không mặc nhiên có thẩm quyền chất lượng hoặc Post kho tro
 
 | Model | Fields |
 |---|---|
-| UserResponse | id, username, fullName, role, warehouseIds[], version |
+| UserResponse | id, username, fullName, role, warehouseIds[], warehouses[{id,code,name}], version |
 | WarehouseResponse | id, code, name, version |
 | AssignmentResponse | id, userId, username, warehouseId, warehouseName, version |
 | OrganizationResponse | id, code, name, country, kind, version |
-| VaccineResponse | id, code, name, manufacturerId, manufacturerName, dosesPerVial, vialsPerPack, storageMin, storageMax, version |
+| VaccineResponse | id, code, name, manufacturerId, manufacturerName, dosesPerVial, vialsPerPack, storageMin, storageMax, version, storageReviewRequired |
 | BatchResponse | id, vaccineId, vaccineCode, vaccineName, batchNo, manufacturedAt?, expiresAt, expiryStatus, daysToExpiry, version |
 | ReceiptLineResponse | id, batchId, vaccineId, vaccineCode, vaccineName, batchNo, expiresAt, quantity, unitPrice, lineTotal, stockSegmentId? |
 | ReceiptResponse | id, documentNo, warehouseId, warehouseName, supplierId, supplierName, documentDate, status, createdBy{id,fullName}, postedAt?, lines: ReceiptLineResponse[], totalQuantity, totalAmount, version |
@@ -171,6 +177,7 @@ Login không tiết lộ username tồn tại hay không, sai credentials trả 
 | POST `/users/{id}/reset-password` | A | If-Match; `{newPassword,reason}` | 200 `{id,reauthenticationRequired:true,version}`; audit, không trả mật khẩu |
 | GET `/warehouse-assignments` | A | Query: userId?, warehouseId?, page/pageSize | Page<AssignmentResponse> |
 | POST `/warehouse-assignments` | A | `{userId,warehouseId}` | 201 AssignmentResponse; trùng cặp trả 409 |
+| GET `/warehouse-assignments/{id}` | A | ID | AssignmentResponse + ETag, đọc lại version và làm đích Location |
 | DELETE `/warehouse-assignments/{id}` | A | If-Match; không body | 204; gỡ quyền, giữ nguyên lịch sử phiếu |
 
 Không xóa tài khoản qua API vì liên kết nhật ký/chứng từ. Chưa có disable user; cần `IsActive` nếu triển khai sau. Không cho admin tự hạ role của tài khoản admin cuối cùng; reset mật khẩu tài khoản khác phải có lý do và audit. Không trả PasswordHash ở bất cứ response nào.
@@ -516,7 +523,7 @@ InventoryPeriodRow: warehouseId, vaccineId, vaccineName, batchId, batchNo, openi
 | GET `/stock-dispositions/{id}/audit-logs` | A/Q | page/pageSize | Page<AuditResponse> |
 | GET `/trade-shipments/{id}/audit-logs` | A/Q | page/pageSize | Page<AuditResponse> |
 
-Audit append-only qua service, không có POST/PUT/DELETE công khai. Details dùng JSON đã lọc và tối đa 2000 ký tự, gồm lý do và thay đổi cần thiết; không nhét toàn bộ phiếu nhiều dòng vượt giới hạn. Không ghi password/hash/access token. Các action con phải ghi EntityType/EntityId của aggregate cha để truy vấn lịch sử theo quyền mà không parse thông tin nhạy cảm trong Details.
+Audit append-only qua service, không có POST/PUT/DELETE công khai. Details dùng JSON đã lọc gồm lý do và thay đổi cần thiết; DB đã mở rộng sang nvarchar(max) để tránh cắt lý do 2000 ký tự sau encode JSON. Input vẫn giới hạn theo contract, không nhét toàn bộ phiếu nhiều dòng không cần thiết. Không ghi password/hash/access token. Các action con phải ghi EntityType/EntityId phù hợp aggregate để truy vấn lịch sử theo quyền mà không parse thông tin nhạy cảm trong Details.
 
 ## 16. Health
 
@@ -552,12 +559,12 @@ Các test bắt buộc trước khi nối Flutter:
 
 | Thay đổi | Endpoint phụ thuộc / lý do |
 |---|---|
-| RowVersion cho AppUser, Warehouse, WarehouseAssignment, Organization, Vaccine, VaccineBatch, Receipt, Issue, TradeShipment | Đồng nhất version/ETag; bảo vệ sửa nháp, danh mục và phân quyền |
-| AppUser.AuthVersion, default 0 | Thu hồi token sau reset/đổi password, đổi role và logout |
+| RowVersion cho Receipt, Issue, TradeShipment | Còn cần làm; AppUser, WarehouseAssignment, Warehouse, Organization, Vaccine, VaccineBatch đã có RowVersion/ETag |
+| AppUser.AuthVersion, default 0 | Đã triển khai; thu hồi token sau reset/đổi password, đổi role và logout |
 | Bảng IdempotencyRequest: actorId, method, route, key, requestHash, resultStatus, responseBody, responseHeaders, createdAt, expiresAt; unique scope | Retry an toàn cho tạo mới và hành động; dữ liệu lưu phải giới hạn kích thước và không chứa login/password |
 | TradeShipment.WarehouseId + FK/index | Phạm vi quyền của hồ sơ ngay từ lúc chưa có link; dữ liệu cũ cần xác định kho trước khi chuyển NOT NULL |
 | Unique filtered index ShipmentDocumentLink.ReceiptId / IssueId | Một phiếu không bị gắn vào hai hồ sơ quốc tế đồng thời; rà dữ liệu trùng trước migration |
-| Check enum Organization.Kind, TradeShipment.Kind/Status theo contract đã chốt | Tránh tùy ý lưu trạng thái không hợp lệ; rà dữ liệu cũ trước khi siết |
+| Check enum TradeShipment.Kind/Status theo contract đã chốt | Organization.Kind đã có check; các check hồ sơ quốc tế còn cần làm, phải rà dữ liệu cũ trước khi siết |
 
 Chưa cần thêm bảng chỉ để lưu tên response/tổng tiền/canPost; các giá trị đó dẫn xuất. Chưa triển khai API cho opened vial, cảm biến, file upload, transfer, recall ngoài kho, kiểm kê, đảo phiếu hoặc refresh token khi chưa có model lưu phù hợp.
 

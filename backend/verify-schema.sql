@@ -26,4 +26,17 @@ IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('dbo.StockS
 
 IF NOT EXISTS (SELECT 1 FROM dbo.__EFMigrationsHistory WHERE MigrationId LIKE '%IncidentAndDispositionFlow')
     THROW 51006, 'Incident/disposition migration is not applied.', 1;
+IF COL_LENGTH('dbo.AppUserRecords','AuthVersion') IS NULL
+    OR COL_LENGTH('dbo.AppUserRecords','RowVersion') IS NULL
+    THROW 51007, 'Auth session columns are missing.', 1;
+IF COL_LENGTH('dbo.WarehouseAssignmentRecords','RowVersion') IS NULL
+    THROW 51008, 'Warehouse assignment version is missing.', 1;
+IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('dbo.AuditLogRecords') AND name='Details' AND max_length=-1)
+    THROW 51009, 'Audit JSON column must preserve long encoded reasons.', 1;
+IF COL_LENGTH('dbo.WarehouseRecords','RowVersion') IS NULL
+    OR COL_LENGTH('dbo.OrganizationRecords','RowVersion') IS NULL
+    OR COL_LENGTH('dbo.VaccineRecords','RowVersion') IS NULL
+    THROW 51011, 'Catalog rowversions are missing.', 1;
+IF COL_LENGTH('dbo.VaccineBatchRecords','RowVersion') IS NULL
+    THROW 51012, 'Vaccine batch version is missing.', 1;
 SELECT 'PASS: 21 domain tables, migrations, checks, foreign keys and rowversion.' AS Result;

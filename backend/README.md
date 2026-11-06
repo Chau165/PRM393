@@ -1,10 +1,16 @@
-# VaxStock backend — database nền tảng
+# VaxStock backend — 3 tầng và auth
 
 Backend nằm cùng repository với Flutter nhưng có solution riêng: `VaxStock.sln`.
 
+Auth BE + Flutter và API [quản trị user/quyền kho](../docs/user-management-implementation.md) đã triển khai. Xem [hướng dẫn auth](../docs/auth-implementation.md) để cấu hình signing key, seed password, chạy Flutter và kiểm thử; file local có secret được gitignore.
+
+API mục 6 đã có CRUD [kho/đối tác/vaccine](../docs/master-data-implementation.md), ETag và audit. Mục 7 đã có [lô vaccine và truy xuất](../docs/batch-implementation.md). Sau khi có thay đổi code, cần dừng/restart API đang chạy để tải DLL mới. Chưa có API nhập/xuất.
+
+Flutter đã nối [shell theo phiên và danh mục Kho](../docs/flutter-shell-warehouse-integration.md); mở menu Kho sau login. [Đối tác/Vaccine](../docs/flutter-partner-vaccine-integration.md) đã có trong shell server; [Lô/truy xuất B5/B6](../docs/flutter-batch-trace-integration.md) đã nối Flutter.
+
 ## Môi trường đã kiểm tra
 
-- .NET SDK: **10.0.401**, target **net10.0**; SDK được khóa bằng `global.json` trong thư mục này.
+- Target **net10.0**; `global.json` dùng baseline SDK **10.0.100**, rollForward latestFeature để chọn SDK .NET 10 đã cài. Máy hiện nhận diện 10.0.102; 10.0.401 từng dùng lúc khởi tạo không còn hoạt động.
 - SQL Server local: **2022 Developer Edition, 16.0.1000.6**, default instance `localhost`, dịch vụ `MSSQLSERVER`.
 - EF Core SQL Server/Design: **10.0.12**.
 - `System.Security.Cryptography.Pkcs` được tham chiếu trực tiếp bản **10.0.13** để xử lý cảnh báo NuGet từ dependency gián tiếp.
@@ -18,8 +24,9 @@ Mở terminal tại `D:\FALL26\PRM393\Project\backend`:
 
 ```powershell
 dotnet restore VaxStock.sln
-dotnet build VaxStock.sln --no-restore
-dotnet ef database update --project VaxStock.Api
+dotnet build VaxStock.sln --no-restore -m:1
+dotnet ef database update --project VaxStock.DataAccess --startup-project VaxStock.Api
+dotnet run --project VaxStock.Api --launch-profile http -- --seed-auth true
 dotnet run --project VaxStock.Api --launch-profile http
 ```
 
@@ -31,7 +38,7 @@ dotnet tool install --global dotnet-ef --version 10.0.12
 
 Nếu máy đã có bản cũ, dùng `dotnet tool update --global dotnet-ef --version 10.0.12`. Máy khởi tạo hiện có CLI 10.0.10; CLI này đã tạo và áp dụng migration thành công nhưng có thông báo lệch phiên bản với EF runtime.
 
-Mở `http://localhost:5109/health` hoặc gửi request trong `VaxStock.Api.http`. Endpoint này chỉ kiểm tra tiến trình API, không kiểm tra kết nối database. Không có Swagger hoặc API nghiệp vụ ở bước khởi tạo này.
+Mở `http://localhost:5109/health` hoặc gửi request trong `VaxStock.Api.http`. Health chỉ kiểm tra tiến trình API. Đã có auth, quản trị user/quyền kho, CRUD danh mục và lô/trace; chưa có API phiếu/FEFO/Post hoặc Swagger UI.
 
 `TrustServerCertificate=True` chỉ dành cho SQL Server phát triển local; khi triển khai cần chứng chỉ được tin cậy và cấu hình kết nối phù hợp. Có thể ghi đè connection string bằng biến môi trường `ConnectionStrings__Warehouse`; không commit tài khoản/mật khẩu thật.
 
@@ -39,10 +46,14 @@ Mở `http://localhost:5109/health` hoặc gửi request trong `VaxStock.Api.htt
 
 ```text
 VaxStock.Api/
-  Models/Entities.cs                # Entity ban đầu
-  Data/WarehouseDbContext.cs        # Quan hệ, index, kiểu dữ liệu, constraint
-  Data/Migrations/                  # Initial migration và model snapshot
-  Program.cs                        # DI, EF SQL Server, /health
+  Contracts/, Controllers/          # HTTP request/response
+  Security/, Infrastructure/        # JWT, hasher, errors, seed
+VaxStock.Business/
+  Models/, Interfaces/, Services/   # Auth use cases
+VaxStock.DataAccess/
+  Entities/, Data/, Repositories/   # EF, persistence
+  Migrations/                       # Giữ migration IDs cũ + AuthSessionVersion
+VaxStock.Tests/                     # Test auth business
 schema.sql                          # SQL idempotent xuất từ migration
 verify-schema.sql                   # Kiểm tra schema thực tế, không sửa dữ liệu
 ```
@@ -79,10 +90,10 @@ Schema không thay thế kiểm tra nghiệp vụ: kiểm tra cùng kho giữa s
 Sau khi sửa model/DbContext:
 
 ```powershell
-dotnet ef migrations add TenThayDoi --project VaxStock.Api --output-dir Data/Migrations
-dotnet ef database update --project VaxStock.Api
-dotnet ef migrations script --project VaxStock.Api --idempotent --output schema.sql
-dotnet ef migrations has-pending-model-changes --project VaxStock.Api
+dotnet ef migrations add TenThayDoi --project VaxStock.DataAccess --startup-project VaxStock.Api --output-dir Migrations
+dotnet ef database update --project VaxStock.DataAccess --startup-project VaxStock.Api
+dotnet ef migrations script --project VaxStock.DataAccess --startup-project VaxStock.Api --idempotent --output schema.sql
+dotnet ef migrations has-pending-model-changes --project VaxStock.DataAccess --startup-project VaxStock.Api
 ```
 
 `schema.sql` là bản xuất để xem xét/chạy trong database đích đã chọn, không tự tạo database. Ưu tiên `database update` khi phát triển; không chỉnh SQL riêng rồi bỏ quên migration.
@@ -94,7 +105,7 @@ sqlcmd -S localhost -E -C -d VaxStockDev -b -i verify-schema.sql
 sqlcmd -S localhost -E -C -d VaxStockDev -b -i test-database-flow.sql
 ```
 
-Database ban đầu trống, chưa seed tài khoản và vaccine. Chưa có JWT, CRUD, FEFO, Post hoặc tích hợp Flutter. Bước tiếp theo là auth/phân quyền rồi danh mục và luồng nhập kho; không dùng entity trực tiếp làm response API, đặc biệt AppUser có PasswordHash.
+AuthSessionVersion bổ sung AuthVersion và RowVersion của AppUser; các migration sau bổ sung version cho assignment/danh mục/lô. Seed auth là lệnh chủ động, chưa seed vaccine cho dữ liệu vận hành. Bước tiếp theo là API nhập kho; không trả entity hoặc PasswordHash ra API.
 
 `test-database-flow.sql` tạo fixture trong transaction rồi rollback; kiểm tra quan hệ nhập/sự cố/tiêu hủy, số dư movement và một số dữ liệu không hợp lệ. Không thay thế kiểm thử service/giao dịch sau khi chốt kiến trúc.
 
